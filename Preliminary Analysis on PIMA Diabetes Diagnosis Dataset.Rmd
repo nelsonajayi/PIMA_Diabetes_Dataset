@@ -1,0 +1,429 @@
+---
+title: "Report on Preliminary Analysis of PIMA Diabetes Diagnosis Dataset"
+author: "Oluwagbemiga Nelson Ajayi"
+date: "April 26, 2021"
+output: html_document
+---
+
+output:
+  html_document:
+    number_sections: yes
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+This dataset is originally from the National Institute of Diabetes and Digestive and Kidney Diseases. The objective of the dataset is to diagnostically predict whether or not a patient has diabetes, based on certain diagnostic measurements included in the dataset. Several constraints were placed on the selection of these instances from a larger database. In particular, all patients here are females at least 21 years old of Pima Indian heritage.
+
+The datasets consists of several medical predictor variables and one target variable, Outcome. Predictor variables includes the number of pregnancies the patient has had, their BMI, insulin level, age, and so on.
+
+**Variable (columns) descriptions:** All the predictors are of numeric type. The usage of outcome
+here is categorical even though 1 (positive case) and 0 (negative case) are ordinarily numeric types. See below other specific details about the predictors:
+
+. Pregnancy: Number of pregnancies
+. Glucose: Plasma glucose concentration 2 hours in an oral glucose tolerance test
+. BloodPressure: Diastolic blood pressure (mm Hg)
+. SkinThicknessTriceps: skin fold thickness (mm)
+. Insulin: 2-Hour serum insulin (mu U/ml)
+. BMI: Body mass index (weight in kg/(height in m)^2)
+. DiabetesPedigreeFunction: Diabetes pedigree function
+. Age: Age (years)
+. Outcome: Class variable (0 or 1) 268 of 768 are 1, the others are 0
+
+
+Find below the summary of the dataset:
+```{r}
+diabetes <- read.csv('diabetes.csv')
+summary(diabetes)
+```
+Find below the snapshot of the first few rows:
+```{r}
+head(diabetes)
+```
+
+
+It is also useful to take a look at the pair plot to visually observe the relationship among predictors:
+```{r}
+cols <- character(nrow(diabetes))
+cols[] <-  'black'
+cols[diabetes$Outcome == '1'] <- 'red'
+pairs(diabetes, col=cols,pch="*")
+```
+
+
+
+# Logistics Regression 
+One major difference between statistical modeling and machine learning is that statistics is more focused on explaining and understanding the process by which data is generated with an ultimate goal of *inference*  while machine learning most of the times tries to *predict* or classify which is a reason they are called *blackbox models*. With this difference in orientation, Machine learning algorithms offer only some degree of explainability which varies depending on the algorithm.
+
+The choice of Logistics regression here has a lot to do with it's somewhat higher degree of explainability compared with other models. I'll be using 2 approaches here: Train/Test Split Approach and Cross Validation Approach
+
+## Train/Test Split
+
+Train/Test Split Approach creates 2 different samples for training and testing. Here we will use 70/30 ratio 
+
+Below is a code to achieve the slpit:
+```{r}
+set.seed(7)
+dt= sort(sample(nrow(diabetes), nrow(diabetes)*.7))
+train <- diabetes[dt,]
+test <- diabetes[-dt,]
+```
+
+Now we fit a logistic regression model on our diabetes dataset first on all predictors:
+```{r}
+attach(diabetes)
+glm.fit=glm(factor(Outcome)~.,data = diabetes, family = binomial)
+summary(glm.fit)
+```
+
+Here we can see looking at the p-values that Skin thickness, insulin and age have no significance. Skin thickness according to Dr Spanakis is a trivial predictor so that makes sense. Insulin on the other hand looking at the pairplot above show some positive correlation with glucose which is most likely the reason for the high p-value. For some reasons perhaps correlation again, Age is not signifcant.
+
+I will exclude the insignifcant predictors and refit the model this time using just the train dataset:
+```{r}
+glm.fit=glm(Outcome~Pregnancies+Glucose+BloodPressure+BMI+DiabetesPedigreeFunction,data = train, family = binomial)
+summary(glm.fit)
+
+```
+
+We can go ahead to evaluate the model to see the performance of the model on train and test dataset. We'll use a treshold of >0.5 to be 1 and 0.5 or < to be 0:
+
+```{r}
+glm.probs1=predict(glm.fit, type='response')
+glm.probs2=predict(glm.fit,newdata = test, type='response')
+glm.pred1=ifelse(glm.probs1>0.5,'1','0')
+glm.pred2=ifelse(glm.probs2>0.5,'1','0')
+table(glm.pred1, train$Outcome)
+table(glm.pred2, test$Outcome)
+```
+We can compute accuracy using the code below:
+```{r}
+mean(glm.pred1==train$Outcome)
+mean(glm.pred2==test$Outcome)
+```
+
+
+
+This gives an accuracy of roughly 77% on both train and test dataset which gives an evidence that the model does not overfit. 
+
+## Cross Validation
+
+Cross Validation approach splits the dataset into k equal folds then trains using k-1 folds and test using the holdout portion recursively. The overall performance is then the average of individual iteration of k model fits. 
+
+```{r}
+set.seed(8)
+suppressPackageStartupMessages(require(boot))
+cv.error.5 = rep(0,5)
+for (i in 1:5) {
+  glm.fitCv=glm(Outcome~Pregnancies+Glucose+BloodPressure+BMI+DiabetesPedigreeFunction,data = diabetes, family = binomial)
+  cv.error.5[i]=cv.glm(diabetes, glm.fitCv, K=5)$delta[1]
+}
+cv.error.5
+```
+
+We can compute accuracy with the code below:
+
+```{r}
+accuracy <- mean(1 - cv.error.5)
+accuracy
+```
+
+At 84% cross valdation recorded a better prediction accuracy
+
+# Linear Discriminant Analysis
+
+```{r}
+#diabetes_vec=unlist(diabetes, use.names =T)
+#library(MASS)
+#lda.fit = lda(Outcome~., data=diabetes, subset=train)
+#lda.fit
+```
+
+
+
+# Quadratic Discriminant Analysis
+
+
+# Support Vector Machines
+
+Now i am going to try Support Vector Machines and see what we get. I'll train with the train dataset and evaluate with the test.
+```{r}
+suppressPackageStartupMessages(require(e1071))
+
+trainSVM <-  svm(formula = Outcome ~ ., data = train, type = 'C-classification', kernel = 'polynomial')
+trainSVM
+predSVM = predict(trainSVM, newdata=test)
+
+table(predSVM, test$Outcome)
+
+mean(predSVM==test$Outcome)
+```
+
+Support Vector Machines with train/test split records a performanceof 73%
+
+
+#Deep Learning
+
+Lastly i'm going to try a deep learning implementation using Keras Library
+
+Libraries:
+```{r}
+suppressPackageStartupMessages(require(dplyr))
+suppressPackageStartupMessages(require(keras))
+suppressPackageStartupMessages(require(caret))
+
+source("./train_val_test.R")
+```
+
+Data pre-processing
+
+```{r}
+c(train, val, test) %<-% train_val_test_split(df = diabetes, train_ratio = 0.8, val_ratio = 0, test_ratio = 0.2)
+
+X_train <- train %>% 
+  select(-Outcome) %>% 
+  as.matrix()
+y_train <- train %>% 
+  select(Outcome) %>% 
+  as.matrix()
+
+X_test <- test %>% 
+  select(-Outcome) %>% 
+  as.matrix()
+y_test <- test %>% 
+  select(Outcome) %>% 
+  as.matrix()
+
+dimnames(X_train) <- NULL
+dimnames(X_test) <- NULL
+
+X_train_scale <- X_train %>% 
+  scale()
+
+col_mean_train <- attr(X_train_scale, "scaled:center") 
+col_sd_train <- attr(X_train_scale, "scaled:scale")
+
+X_test_scale <- X_test %>% 
+  scale(center = col_mean_train, 
+        scale = col_sd_train)
+```
+
+Model function-Layers and compile stage:
+```{r}
+create_model <- function() {
+  dnn_class_model <- 
+    keras_model_sequential() %>% 
+    layer_dense(units = 64, 
+                activation = 'relu', 
+                input_shape = c(ncol(X_train_scale))) %>% 
+    layer_dropout(rate = 0.2) %>% 
+    layer_dense(units = 32, activation = 'relu') %>% 
+    layer_dropout(rate = 0.2) %>% 
+    layer_dense(units = 16, activation = 'relu') %>% 
+    layer_dropout(rate = 0.2) %>% 
+    layer_dense(units = 1, activation = 'sigmoid') %>% 
+     compile(optimizer = 'rmsprop',
+            loss = 'binary_crossentropy',
+            metrics = 'accuracy')}
+```
+
+
+Model fiting:
+```{r}
+dnn_class_model <- create_model()
+history <- dnn_class_model %>% 
+  keras::fit(x = X_train_scale, 
+             y = y_train,
+             epochs = 30, 
+             validation_split = 0.2,
+              
+             batch_size = 128)
+plot(history,
+     smooth = F)
+```
+
+
+Preidction and Evaluation:
+
+```{r}
+y_test_pred <- predict(object = dnn_class_model, x = X_test_scale)
+y_test_pred %>% table() %>% head()
+
+test$outcome_pred <- y_test_pred[, 1]
+
+
+test <- test %>% 
+  mutate(outcome_pred_class = ifelse(outcome_pred < 0.5, 0, 1)) %>%   
+  mutate(outcome_pred_class = as.factor(outcome_pred_class)) %>% 
+  mutate(Outcome = as.factor(Outcome))
+
+
+cm_tab <- caret::confusionMatrix(test$outcome_pred_class, 
+                                 test$Outcome)
+cm_tab
+```
+
+Deep Learning records an accuracy of 76%
+
+
+Tree Based Methods:
+Classification Tree
+
+```{r}
+library(tree)
+tree.diabetes = tree(Outcome~., diabetes)
+summary(tree.diabetes)
+```
+```{r}
+plot(tree.diabetes)
+text(tree.diabetes, pretty = 1)
+```
+
+```{r}
+tree.diabetes
+```
+
+```{r}
+set.seed(2)
+train=sample(1:nrow(diabetes),730)
+diabetes.test = diabetes[-train,]
+Outcome.test= diabetes$Outcome[-train]
+tree.diabetes=tree(as.factor(Outcome)~., diabetes, subset = train)
+tree.pred = predict(tree.diabetes, diabetes.test, type = 'class')
+table(tree.pred,Outcome.test)
+```
+```{r}
+(282)/(282+102)
+(32)/(32+6)
+```
+
+We look at pruning to see if there are improvements:
+
+```{r}
+set.seed(3)
+cv.diabetes = cv.tree(tree.diabetes, FUN = prune.misclass)
+names(cv.diabetes)
+cv.diabetes
+```
+
+We plot the error rate as a function of both size and k:
+
+```{r}
+par(mfrow=c(1,2))
+plot(cv.diabetes$size, cv.diabetes$dev, type = 'b')
+plot(cv.diabetes$k, cv.diabetes$dev, type = 'b')
+```
+We now apply prune.misclass to have only 5 nodes tree:
+
+```{r}
+prune.diabetes = prune.misclass(tree.diabetes, best = 5)
+plot(prune.diabetes)
+text(prune.diabetes, pretty=0)
+```
+
+```{r}
+tree.pred = predict(prune.diabetes, diabetes.test, type = 'class')
+table(tree.pred,Outcome.test)
+```
+```{r}
+298/(298+86)
+```
+
+Bagging and Random Forest:
+
+Recall that bagging is simply a special case of a random forest with m=p. That mtry=8 shows that all the 8 predictors should be considered for each split of the tree
+
+```{r}
+library(randomForest)
+set.seed(1)
+bag.diabetes=randomForest(factor(Outcome)~., data = diabetes, subset = train, mtry=8, importance=T)
+bag.diabetes
+
+```
+
+How well does the model perform on the test set:
+
+```{r}
+yhat.bag= predict(bag.diabetes, newdata = diabetes[-train,])
+table(yhat.bag, Outcome.test)
+```
+```{r}
+298/(298+86)
+
+```
+
+Growing a random forest proceeds in exactly the same way , except that we use a smaller value of the mtry argument:
+
+```{r}
+
+set.seed(4)
+rf.diabetes=randomForest(factor(Outcome)~., data = diabetes, subset = train, mtry=5, importance=T)
+rf.diabetes
+
+yhat.rf= predict(rf.diabetes, newdata = diabetes[-train,])
+table(yhat.rf, Outcome.test)
+```
+```{r}
+297/(297+87)
+33/(33+5)
+```
+
+```{r}
+importance(rf.diabetes)
+```
+
+```{r}
+varImpPlot(rf.diabetes)
+```
+Boosting
+we use the gbm package and use option distribution="bernoulli" as we have a binary classification problem:
+
+```{r}
+library(gbm)
+set.seed(1)
+boost.diabetes=gbm(Outcome~., data = diabetes[train,], distribution = 'bernoulli')
+summary(boost.diabetes)
+```
+```{r}
+par(mfrow=c(1,2))
+plot(boost.diabetes, i='Glucose')
+plot(boost.diabetes, i='BMI')
+```
+```{r}
+yhat.boost= predict(boost.diabetes, newdata = diabetes[-train,],n.trees = 20)
+
+glm.pred1=ifelse(yhat.boost>0,'1','0')
+
+table(glm.pred1, Outcome.test)
+
+```
+
+
+
+```{r}
+library(Rtsne)
+tsne.diabetes= Rtsne(diabetes[,-1], dims=2, perplexity =30, verbose=T, max_iter=500)
+```
+```{r}
+colors = rainbow(length(unique(diabetes$Outcome)))
+names(colors)=unique(diabetes$Outcome)
+par(mgp=c(2.5,1,0))
+plot(tsne.diabetes$Y, t='n',main = 'tSNE Dimension 1', ylab = 'tSNE dimension 2', 'cex.main'=2,'cex.lab'=1.5)
+text(tsne.diabetes$Y, labels=diabetes$Outcome, col = colors[diabetes$label])
+```
+
+
+# Acknowledgement
+
+This dataset was downloaded from:
+Kaggle.com - https://www.kaggle.com/uciml/pima-indians-diabetes-database
+
+
